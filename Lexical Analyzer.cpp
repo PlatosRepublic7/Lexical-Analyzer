@@ -2,10 +2,8 @@
 #include <cctype>
 
 
-map<string, Token> tokMap = {
+map<string, Token> ops = {
 	{ "+", PLUS}, {"-", MINUS}, {"*", MULT}, {"/", DIV}, {"%", REM}, {"(", LPAREN}, {")", RPAREN}, {",", COMMA}, {"=", EQUAL}, {">", GTHAN}, {";", SEMICOL},
-	{"IDENT", IDENT}, {"ICONST", ICONST}, {"RCONST", RCONST}, {"SCONST", SCONST}, {"program", PROGRAM}, {"end", END}, {"begin", BEGIN}, {"write", WRITE},
-	{"if", IF}, {"int", INT}, {"float", FLOAT}, {"string", STRING}, {"repeat", REPEAT}
 };
 
 map<string, Token> tok_str_map = {
@@ -15,11 +13,11 @@ map<string, Token> tok_str_map = {
 };
 
 LexItem getNextToken(istream& in, int& linenum) {
-	enum Tokstate { START, INID, INSTRING, ININT, INREAL, INCOMMENT, INOPERATOR , ERROR};
+	enum Tokstate { START, INID, INSTRING, ININT, INREAL, INCOMMENT, INOPERATOR };
 	Tokstate lexstate = START;
 	string lexeme;
 	LexItem lexitem = LexItem();
-	bool end = false, is_op = false;
+	bool is_op = false;
 	char ch;
 /*	map<string, Token> tokMap = {
 		{ "+", PLUS}, {"-", MINUS}, {"*", MULT}, {"/", DIV}, {"%", REM}, {"(", LPAREN}, {")", RPAREN}, {",", COMMA}, {"=", EQUAL}, {">", GTHAN}, {";", SEMICOL},
@@ -28,11 +26,6 @@ LexItem getNextToken(istream& in, int& linenum) {
 	};
 */
 	while (in.get(ch)) {
-		if (in.eof()) {
-			lexitem = LexItem(DONE, lexeme, linenum);
-			break;
-		}
-
 		switch (lexstate) {
 		case START:
 			if (ch == '\n')
@@ -47,6 +40,10 @@ LexItem getNextToken(istream& in, int& linenum) {
 				lexeme += ch;
 				lexstate = ININT;
 			}
+			else if (ch == '.') {
+				lexeme += ch;
+				lexstate = INREAL;
+			}
 			else if (ch == '"') {
 				lexstate = INSTRING;
 			}
@@ -59,73 +56,116 @@ LexItem getNextToken(istream& in, int& linenum) {
 			break;
 
 		case INID:
-			if (ch == '\n') {
-				lexitem = id_or_kw(lexeme, linenum);
-				linenum++;
-				end = true;
+			in.putback(ch);
+			while (in.get(ch)) {
+				if (ch == '\n') {
+					lexitem = id_or_kw(lexeme, linenum);
+					linenum++;
+					return lexitem;
+				}
+				else if (isspace(ch) || ispunct(ch)) {
+					lexitem = id_or_kw(lexeme, linenum);
+					in.putback(ch);
+					return lexitem;
+				}
+				else
+					lexeme += ch;
 			}
-			else if (isspace(ch) || ispunct(ch)) {
-				lexitem = id_or_kw(lexeme, linenum);
-				end = true;
-			}
-			else {
-				lexeme += ch;
-			}
+
 			break;
 
 		case INSTRING:
-			if (ch == '"') {
-				lexitem = LexItem(SCONST, lexeme, linenum);
-				end = true;
+			in.putback(ch);
+			while (in.get(ch)) {
+				if (ch == '"') {
+					lexitem = LexItem(SCONST, lexeme, linenum);
+					return lexitem;
+				}
+				else if (ch == '\n') {
+					lexitem = LexItem(ERR, lexeme, linenum);
+					return lexitem;
+				}
+				else
+					lexeme += ch;
 			}
-			else if (ch == '\n') {
-				lexstate = ERROR;
-			}
-			else
-				lexeme += ch;
+
 			break;
 
 		case ININT:
-			if (ch == '.') {
-				lexstate = INREAL;
-				lexeme += ch;
+			in.putback(ch);
+			while (in.get(ch)) {
+				if (ch == '.') {
+					lexstate = INREAL;
+					lexeme += ch;
+					break;
+				}
+				else if (ch == '\n') {
+					lexitem = LexItem(ICONST, lexeme, linenum);
+					linenum++;
+					return lexitem;
+				}
+				else if (isspace(ch)) {
+					lexitem = LexItem(ICONST, lexeme, linenum);
+					return lexitem;
+				}
+				else if (ispunct(ch) || isalpha(ch)) {
+					if (ch == ';' || ch == ')') {
+						lexitem = LexItem(ICONST, lexeme, linenum);
+						in.putback(ch);
+					}
+					else {
+						lexitem = LexItem(ERR, lexeme, linenum);
+						in.putback(ch);
+					}
+					return lexitem;
+				}
+				else
+					lexeme += ch;
 			}
-			else if (ch == '\n') {
-				lexitem = LexItem(ICONST, lexeme, linenum);
-				linenum++;
-				end = true;
-			}
-			else if (isspace(ch)) {
-				lexitem = LexItem(ICONST, lexeme, linenum);
-				end = true;
-			}
-			else if (ispunct(ch) || isalpha(ch))
-				lexstate = ERROR;
-			else
-				lexeme += ch;
+
 			break;
 
 		case INREAL:
-			if (ch == '\n') {
-				lexitem = LexItem(RCONST, lexeme, linenum);
-				linenum++;
-				end = true;
+			if (!isdigit(ch)) {
+				lexitem = LexItem(ERR, lexeme, linenum);
+				return lexitem;
 			}
-			else if (isspace(ch)) {
-				lexitem = LexItem(RCONST, lexeme, linenum);
-				end = true;
+
+			in.putback(ch);
+			while (in.get(ch)) {
+				if (ch == '\n') {
+					lexitem = LexItem(RCONST, lexeme, linenum);
+					linenum++;
+					return lexitem;
+				}
+				else if (isspace(ch)) {
+					lexitem = LexItem(RCONST, lexeme, linenum);
+					return lexitem;
+				}
+				else if (ispunct(ch) || isalpha(ch)) {
+					if (ch == ';' || ch == ')') {
+						lexitem = LexItem(RCONST, lexeme, linenum);
+						in.putback(ch);
+					}
+					else {
+						lexitem = LexItem(ERR, lexeme, linenum);
+						in.putback(ch);
+					}
+					return lexitem;
+				}
+				else
+					lexeme += ch;
 			}
-			else if (ispunct(ch) || isalpha(ch))
-				lexstate = ERROR;
-			else
-				lexeme += ch;
+
 			break;
 
 		case INCOMMENT:
-			if (ch == '\n') {
-				linenum++;
-				end = true;
+			while (ch != '\n') {
+				in.get(ch);
 			}
+			linenum++;
+			lexstate = START;
+
 			break;
 
 		case INOPERATOR:
@@ -135,41 +175,40 @@ LexItem getNextToken(istream& in, int& linenum) {
 				in.get(ch);
 				lexeme += ch;
 				lexitem = LexItem(ASSOP, lexeme, linenum);
-				end = true;
 				is_op = true;
 			}
 			else {
-				for (auto it = tokMap.begin(); it != tokMap.end(); it++) {
+				for (auto it = ops.begin(); it != ops.end(); it++) {
 					if (lexeme == it->first) {
 						lexitem = LexItem(it->second, lexeme, linenum);
-						end = true;
 						is_op = true;
 						break;
 					}
 				}
 			}
-			
-			if (!is_op)
-				lexstate = ERROR;
 
-			break;
+			if (!is_op) {
+				lexitem = LexItem(ERR, lexeme, linenum);
+				return lexitem;
+			}
+			else
+				return lexitem;
 
-		case ERROR:
-			lexitem = LexItem(ERR, lexeme, linenum);
-			end = true;
 			break;
 		}
-
-		if (end)
-			break;
 	}
-
-	return lexitem;
+	if (in.eof()) {
+		lexitem = LexItem(DONE, lexeme, linenum);
+		return lexitem;
+	}
 }
 
 
 LexItem id_or_kw(const string& lexeme, int linenum) {
-	map<string, Token> keywords = { {"program", PROGRAM}, {"end", END}, {"begin", BEGIN}, {"write", WRITE}, {"if", IF}, {"int", INT}, {"float", FLOAT}, {"string", STRING}, {"repeat", REPEAT} };
+	map<string, Token> keywords = { 
+		{"program", PROGRAM}, {"PROGRAM", PROGRAM}, {"END", END}, {"end", END}, {"BEGIN", BEGIN}, {"begin", BEGIN}, {"WRITE", WRITE}, {"write", WRITE}, 
+		{"IF", IF},  {"if", IF}, {"INT", INT}, {"int", INT}, {"FLOAT", FLOAT}, {"float", FLOAT}, {"STRING", STRING}, {"string", STRING}, {"REPEAT", REPEAT}, {"repeat", REPEAT}
+	};
 	bool notFound = true;
 	Token t;
 
